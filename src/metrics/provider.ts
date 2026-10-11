@@ -55,6 +55,7 @@ export function createMetricsRuntime(
 
   const provider = new MeterProvider({
     resource: resourceFromAttributes({
+      ...config.resourceAttributes,
       "service.name": config.serviceName,
       "service.version": config.serviceVersion,
     }),

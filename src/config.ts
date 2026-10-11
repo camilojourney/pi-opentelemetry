@@ -98,6 +98,15 @@ function resolveServiceName(env: NodeJS.ProcessEnv): string {
   return sanitizeServiceName(basename(projectRoot));
 }
 
+// OTel env values may be percent-encoded (OTEL_EXPORTER_OTLP_HEADERS, OTEL_RESOURCE_ATTRIBUTES).
+function decodeValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function parseKeyValuePairs(raw: string | undefined): Record<string, string> {
   if (!raw) return {};
 
@@ -108,7 +117,7 @@ export function parseKeyValuePairs(raw: string | undefined): Record<string, stri
     .reduce<Record<string, string>>((acc, pair) => {
       const [key, ...rest] = pair.split("=");
       if (!key || rest.length === 0) return acc;
-      acc[key.trim()] = rest.join("=").trim();
+      acc[key.trim()] = decodeValue(rest.join("=").trim());
       return acc;
     }, {});
 }
@@ -163,6 +172,7 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): TelemetryConfig
     enabled: asBool(readEnv(env, "OTEL_ENABLE"), true),
     serviceName: resolveServiceName(env),
     serviceVersion: readEnv(env, "OTEL_SERVICE_VERSION") ?? "0.1.3",
+    resourceAttributes: parseKeyValuePairs(readEnv(env, "OTEL_RESOURCE_ATTRIBUTES")),
     traceUiBaseUrl: readEnv(env, "OTEL_TRACE_UI_BASE_URL") ?? DEFAULT_TRACE_UI_BASE,
     privacy: {
       profile: parsePrivacyProfile(readEnv(env, "OTEL_PRIVACY_PROFILE")),

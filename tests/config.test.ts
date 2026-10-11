@@ -12,6 +12,16 @@ describe("config", () => {
     });
   });
 
+  it("decodes percent-encoded values", () => {
+    expect(parseKeyValuePairs("Authorization=Basic%20abc%3D")).toEqual({ Authorization: "Basic abc=" });
+  });
+
+  it("reads OTEL_RESOURCE_ATTRIBUTES", () => {
+    const config = getConfig({ OTEL_RESOURCE_ATTRIBUTES: "task.id=T1,repo=fleet,skill=code@2.4.2" });
+    expect(config.resourceAttributes).toEqual({ "task.id": "T1", repo: "fleet", skill: "code@2.4.2" });
+    expect(getConfig({}).resourceAttributes).toEqual({});
+  });
+
   it("provides sane defaults", () => {
     const config = getConfig({});
 

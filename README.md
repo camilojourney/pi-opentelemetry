@@ -123,7 +123,8 @@ Self-host bundle includes pre-provisioned Grafana assets:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | - | Base OTLP endpoint (auto-resolves traces/metrics paths) |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | Trace endpoint |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | `http://localhost:4318/v1/metrics` | Metrics endpoint |
-| `OTEL_EXPORTER_OTLP_HEADERS` | `{}` | OTLP headers (`k=v,k2=v2`) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `{}` | OTLP headers (`k=v,k2=v2`, values may be percent-encoded) |
+| `OTEL_RESOURCE_ATTRIBUTES` | - | Extra resource attributes on traces and metrics (`k=v,k2=v2`) |
 | `OTEL_TRACES_EXPORTER` | `otlp` | `otlp` or `none` |
 | `OTEL_METRICS_EXPORTER` | `otlp` | comma list: `otlp`, `console`, `none` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metrics export interval (ms) |

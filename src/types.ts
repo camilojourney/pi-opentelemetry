@@ -7,6 +7,7 @@ export interface TelemetryConfig {
   enabled: boolean;
   serviceName: string;
   serviceVersion: string;
+  resourceAttributes: Record<string, string>;
   traceUiBaseUrl: string;
   privacy: {
     profile: PrivacyProfile;

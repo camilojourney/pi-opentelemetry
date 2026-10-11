@@ -27,6 +27,7 @@ export function createTraceRuntime(config: TelemetryConfig, onError?: (error: un
 
   const provider = new BasicTracerProvider({
     resource: resourceFromAttributes({
+      ...config.resourceAttributes,
       "service.name": config.serviceName,
       "service.version": config.serviceVersion,
     }),
