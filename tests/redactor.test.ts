@@ -67,4 +67,10 @@ describe("redactor", () => {
     expect(redactor.shouldSkipPath("secrets/prod/token.txt")).toBe(true);
     expect(redactor.shouldSkipPath("src/index.ts")).toBe(false);
   });
+
+  it("masks secrets inside free text", () => {
+    const redactor = createRedactor({ extraSensitiveKeys: ["github_pat"], pathDenylist: [] });
+    const text = redactor.redactText("GITHUB_PAT=x1 PASSWORD='p w' MODE=fast git push https://x Bearer abc.def");
+    expect(text).toBe("GITHUB_PAT=[redacted] PASSWORD=[redacted] MODE=fast git push https://x [redacted]");
+  });
 });

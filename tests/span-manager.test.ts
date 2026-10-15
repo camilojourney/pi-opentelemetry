@@ -141,4 +141,52 @@ describe("span manager", () => {
 
     expect(tracer.spans.every((span) => span.ended)).toBe(true);
   });
+
+  it("records file paths and redacted commands as tool span attributes", () => {
+    const tracer = new FakeTracer();
+    const redactor = createRedactor({ extraSensitiveKeys: [], pathDenylist: [] });
+    const policy = createPayloadPolicy({ profile: "detailed-with-redaction", payloadMaxBytes: 1024, redactor });
+    const manager = createSpanManager({ tracer: tracer as never, payloadPolicy: policy, redactText: redactor.redactText });
+
+    manager.onSessionStart({ sessionId: "s", sessionFile: "s.jsonl" });
+    manager.onAgentStart();
+    manager.onTurnStart({ turnIndex: 0 });
+    manager.onToolCall({ toolCallId: "r", toolName: "read", input: { path: "skills/code/SKILL.md" }, turnIndex: 0 });
+    manager.onToolCall({
+      toolCallId: "b",
+      toolName: "bash",
+      input: { command: "API_KEY=abc123 curl -H 'Authorization: Bearer tok.en' https://x && echo sk-abcdefghijk" },
+      turnIndex: 0,
+    });
+
+    const read = tracer.spans.find((span) => span.name === "pi.tool: read");
+    expect(read?.attributes["pi.tool.path"]).toBe("skills/code/SKILL.md");
+
+    const bash = tracer.spans.find((span) => span.name.startsWith("pi.tool: bash"));
+    const command = String(bash?.attributes["pi.tool.command"]);
+    expect(command).toContain("curl");
+    for (const secret of ["abc123", "tok.en", "sk-abcdefghijk"]) {
+      expect(command).not.toContain(secret);
+      expect(bash?.name).not.toContain(secret);
+    }
+  });
+
+  it("keeps command text out of spans without a redactor or under the strict profile", () => {
+    for (const options of [{}, { redactText: (text: string) => text, strict: true }]) {
+      const tracer = new FakeTracer();
+      const policy = createPayloadPolicy({
+        profile: "strict",
+        payloadMaxBytes: 1024,
+        redactor: createRedactor({ extraSensitiveKeys: [], pathDenylist: [] }),
+      });
+      const manager = createSpanManager({ tracer: tracer as never, payloadPolicy: policy, ...options });
+      manager.onSessionStart({ sessionId: "s", sessionFile: "s.jsonl" });
+      manager.onAgentStart();
+      manager.onTurnStart({ turnIndex: 0 });
+      manager.onToolCall({ toolCallId: "b", toolName: "bash", input: { command: "echo secret-ish" }, turnIndex: 0 });
+      const bash = tracer.spans.find((span) => span.name.startsWith("pi.tool: bash"));
+      expect(bash?.name).toBe("pi.tool: bash");
+      expect(bash?.attributes["pi.tool.command"]).toBeUndefined();
+    }
+  });
 });

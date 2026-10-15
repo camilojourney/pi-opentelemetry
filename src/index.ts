@@ -104,6 +104,8 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
     ? createSpanManager({
         tracer: traceRuntime.tracer,
         payloadPolicy,
+        redactText: redactor.redactText,
+        strict: config.privacy.profile === "strict",
       })
     : undefined;
 

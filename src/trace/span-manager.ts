@@ -35,6 +35,10 @@ interface ToolResultArgs {
 interface SpanManagerOptions {
   tracer: Tracer;
   payloadPolicy: PayloadPolicy;
+  /** Masks secrets in command text placed in span names and attributes; commands are omitted without it. */
+  redactText?: (text: string) => string;
+  /** The strict profile keeps command text out of spans entirely. */
+  strict?: boolean;
   now?: () => number;
 }
 
@@ -60,18 +64,11 @@ function extractBashCommand(input: unknown): string | undefined {
   return typeof command === "string" ? command : undefined;
 }
 
-function buildToolSpanName(toolName: string, input: unknown): string {
-  if (toolName !== "bash") {
-    return `pi.tool: ${toolName}`;
-  }
-
-  const command = extractBashCommand(input);
-  if (!command) {
-    return `pi.tool: ${toolName}`;
-  }
-
-  return `pi.tool: ${toolName}(${previewText(command, 120)})`;
+function buildToolSpanName(toolName: string, command: string | undefined): string {
+  return command ? `pi.tool: ${toolName}(${previewText(command, 120)})` : `pi.tool: ${toolName}`;
 }
+
+const COMMAND_ATTRIBUTE_MAX_CHARS = 2000;
 
 export function createSpanManager(options: SpanManagerOptions) {
   const now = options.now ?? Date.now;
@@ -217,10 +214,21 @@ export function createSpanManager(options: SpanManagerOptions) {
       if (!parent) return;
 
       const parentCtx = trace.setSpan(context.active(), parent);
-      const span = options.tracer.startSpan(buildToolSpanName(args.toolName, args.input), { startTime: now() }, parentCtx);
+      const rawCommand = args.toolName === "bash" ? extractBashCommand(args.input) : undefined;
+      // Never place a raw command in telemetry: it can carry credentials.
+      const command = rawCommand && options.redactText && !options.strict ? options.redactText(rawCommand) : undefined;
+      const span = options.tracer.startSpan(buildToolSpanName(args.toolName, command), { startTime: now() }, parentCtx);
 
       span.setAttribute("pi.tool.name", args.toolName);
       span.setAttribute("pi.tool.call_id", args.toolCallId);
+      // Span attributes, unlike events, reach backends such as Langfuse as queryable metadata.
+      const path = extractPath(args.input);
+      if (path) {
+        span.setAttribute("pi.tool.path", path);
+      }
+      if (command) {
+        span.setAttribute("pi.tool.command", command.slice(0, COMMAND_ATTRIBUTE_MAX_CHARS));
+      }
       if (args.turnIndex !== undefined) {
         span.setAttribute("pi.turn.index", args.turnIndex);
       }

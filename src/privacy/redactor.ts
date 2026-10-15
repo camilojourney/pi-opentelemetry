@@ -19,6 +19,14 @@ const DEFAULT_VALUE_PATTERNS = [
   /^(?:[A-Za-z0-9+/]{40,}={0,2})$/,
 ];
 
+// Secrets embedded in free text, such as a shell command.
+const INLINE_VALUE_PATTERNS = [
+  /\bbearer\s+[A-Za-z0-9\-_.=:+/]+/gi,
+  /\bsk-[A-Za-z0-9\-_]{8,}/g,
+  /\b[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\b/g,
+  /[A-Za-z0-9+/]{40,}={0,2}/g,
+];
+
 function wildcardToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`, "i");
@@ -35,6 +43,8 @@ export interface RedactorOptions {
 
 export interface Redactor {
   redact(value: unknown): unknown;
+  /** Masks secrets inside free text: token-like substrings and NAME=value pairs with a sensitive name. */
+  redactText(text: string): string;
   shouldSkipPath(path: string): boolean;
 }
 
@@ -77,6 +87,12 @@ export function createRedactor(options: RedactorOptions): Redactor {
   return {
     redact(value: unknown): unknown {
       return redactRecursive(value);
+    },
+    redactText(text: string): string {
+      const assigned = text.replace(/([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/g, (match, name: string) =>
+        matchesSensitiveKey(name) ? `${name}=${REDACTED}` : match,
+      );
+      return INLINE_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, REDACTED), assigned);
     },
     shouldSkipPath(path: string): boolean {
       return denyPatterns.some((pattern) => pattern.test(path));
