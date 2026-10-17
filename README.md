@@ -1,6 +1,6 @@
 # Pi OpenTelemetry Extension
 
-An extension for the [Pi coding agent](https://github.com/badlogic/pi-mono/) that adds production-ready usage observability:
+An extension for the [Pi coding agent](https://github.com/earendil-works/pi/) that adds production-ready usage observability:
 
 - **Trace** (`session -> agent -> turn -> tool`)
 - **Metrics** (session/turn/tool/prompt/token/cost/duration)
@@ -23,6 +23,12 @@ When you run Pi at scale, you need more than logs:
 This extension is designed to keep exporter failures non-blocking while preserving useful runtime visibility.
 
 ## Install
+
+This fork is tested with Pi 1.3.0 (`@earendil-works/pi-coding-agent`) and requires
+Node 22.19 or newer. Use a reviewed commit pin for reproducible installations;
+local changes are not an upstream npm release. Native Langfuse generations,
+Firstmate carriers and durable attempt links follow the
+[exporter contract](docs/otel-architecture.md#requirements).
 
 ### From npm
 
@@ -119,7 +125,7 @@ Self-host bundle includes pre-provisioned Grafana assets:
 | `OTEL_SERVICE_NAME` | auto (nearest `package.json#name` → directory name → `pi-opentelemetry`) | OTel service name (`PI_` prefix supported) |
 | `OTEL_SERVICE_NAME_AUTO` | `true` | Enable/disable automatic project-based service name detection |
 | `OTEL_PROJECT_ROOT` | `process.cwd()` | Optional root override used only for auto service name detection |
-| `OTEL_SERVICE_VERSION` | `0.1.3` | OTel service version |
+| `OTEL_SERVICE_VERSION` | package version | OTel service version |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | - | Base OTLP endpoint (auto-resolves traces/metrics paths) |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` | Trace endpoint |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | `http://localhost:4318/v1/metrics` | Metrics endpoint |
@@ -133,19 +139,23 @@ Self-host bundle includes pre-provisioned Grafana assets:
 | `OTEL_PAYLOAD_MAX_BYTES` | `32768` | Max payload capture bytes |
 | `OTEL_REDACT_KEYS` | `[]` | Extra sensitive keys (comma-separated) |
 | `OTEL_PATH_DENYLIST` | built-in + custom | File path denylist patterns |
+| `PI_OTEL_INSTANCE_ID` | hashed hostname | Optional machine-local label, not a shared config value |
+| `TRACEPARENT` | absent | Explicit Firstmate W3C carrier; invalid carriers start independent roots |
 
 > `PI_` prefix is supported for all keys (e.g. `PI_OTEL_PRIVACY_PROFILE`).
 
 ## Development
 
 ```bash
-npm install
+npm ci --ignore-scripts
 npm test
 npm run typecheck
 npm run release:check
 ```
 
 `npm run release:check` runs tests, type checks, and `npm pack --dry-run`.
+Tests include the pinned real Pi CLI in an isolated home, without credentials or
+model calls. `npm audit` checks the locked dependency tree.
 
 ## Release (GitHub Actions → npm)
 

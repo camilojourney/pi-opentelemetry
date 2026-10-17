@@ -18,13 +18,10 @@ Outputs that can be generated automatically from implementation code (e.g. gener
 
 Keep only summaries and links in AGENTS/README.
 
-## Execution-state Rules (`PLAN.md` / `PROGRESS.md`)
+## Execution evidence
 
-- `PLAN.md` is the single SoT for current work state (intended state).
-- `PROGRESS.md` is an append-only execution history log.
-- State changes (owner/status/next action) must be reflected in `PLAN.md`.
-- Evidence for state changes (what/when/who/result) must be logged in `PROGRESS.md`.
-- Do not edit/reorder `PROGRESS.md` as if it were a current task board.
+Keep local plans, receipts and execution history outside the source checkout.
+Tracked docs describe current behavior and supported operations, not individual runs.
 
 ## Writing Rules
 

@@ -1,5 +1,6 @@
-import { SpanStatusCode, context, trace, type Span, type Tracer } from "@opentelemetry/api";
+import { ROOT_CONTEXT, SpanStatusCode, trace, type Span, type Tracer, type Context } from "@opentelemetry/api";
 import type { PayloadPolicy } from "../privacy/payload-policy.js";
+import { assistantText, generationAttributes, payloadAttribute } from "./generation.js";
 
 interface SessionStartArgs {
   sessionId: string;
@@ -15,6 +16,7 @@ interface TurnEndArgs {
   turnIndex: number;
   toolResults: number;
   stopReason?: string;
+  message?: unknown;
 }
 
 interface ToolCallArgs {
@@ -40,6 +42,8 @@ interface SpanManagerOptions {
   /** The strict profile keeps command text out of spans entirely. */
   strict?: boolean;
   now?: () => number;
+  parentContext?: Context;
+  attributes?: Record<string, string>;
 }
 
 function normalizeText(value: string): string {
@@ -52,16 +56,10 @@ function previewText(value: string, maxChars: number): string {
   return `${normalized.slice(0, maxChars)}…`;
 }
 
-function extractPath(input: unknown): string | undefined {
+function stringField(input: unknown, key: string): string | undefined {
   if (!input || typeof input !== "object") return undefined;
-  const path = (input as Record<string, unknown>).path;
-  return typeof path === "string" ? path : undefined;
-}
-
-function extractBashCommand(input: unknown): string | undefined {
-  if (!input || typeof input !== "object") return undefined;
-  const command = (input as Record<string, unknown>).command;
-  return typeof command === "string" ? command : undefined;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function buildToolSpanName(toolName: string, command: string | undefined): string {
@@ -77,7 +75,14 @@ export function createSpanManager(options: SpanManagerOptions) {
   let agentSpan: Span | undefined;
   const turns = new Map<number, Span>();
   const tools = new Map<string, Span>();
+  const toolPaths = new Map<string, string | undefined>();
   let traceId: string | undefined;
+  let input: string | undefined;
+  let activeTurnIndex: number | undefined;
+
+  const childContext = (span: Span) => trace.setSpan(ROOT_CONTEXT, span);
+  const startSpan = (name: string, startTime: number, parent = options.parentContext ?? ROOT_CONTEXT) =>
+    options.tracer.startSpan(name, { startTime, attributes: options.attributes }, parent);
 
   const safeEnd = (span: Span | undefined): void => {
     if (!span) return;
@@ -90,6 +95,7 @@ export function createSpanManager(options: SpanManagerOptions) {
       span.setAttribute("pi.tool.orphan", true);
       safeEnd(span);
       tools.delete(toolCallId);
+      toolPaths.delete(toolCallId);
     }
   };
 
@@ -111,10 +117,9 @@ export function createSpanManager(options: SpanManagerOptions) {
   };
 
   const getToolParent = (turnIndex: number | undefined): Span | undefined => {
-    if (turnIndex !== undefined) {
-      return turns.get(turnIndex) ?? agentSpan ?? sessionSpan;
-    }
-    return agentSpan ?? sessionSpan;
+    const index = turnIndex ?? activeTurnIndex;
+    const turn = index === undefined ? undefined : turns.get(index);
+    return turn ?? agentSpan ?? sessionSpan;
   };
 
   const setTraceId = (span: Span | undefined): void => {
@@ -126,6 +131,10 @@ export function createSpanManager(options: SpanManagerOptions) {
       return traceId;
     },
 
+    isSampled(): boolean {
+      return Boolean((sessionSpan?.spanContext().traceFlags ?? 0) & 1);
+    },
+
     onSessionStart(args: SessionStartArgs): void {
       if (sessionSpan) {
         closeToolSpans("session_restart");
@@ -134,8 +143,11 @@ export function createSpanManager(options: SpanManagerOptions) {
         safeEnd(sessionSpan);
       }
 
-      sessionSpan = options.tracer.startSpan("pi.session", { startTime: now() });
+      input = undefined;
+      activeTurnIndex = undefined;
+      sessionSpan = startSpan("pi.session", now());
       sessionSpan.setAttribute("pi.session.id", args.sessionId);
+      sessionSpan.setAttribute("session.id", args.sessionId);
       if (args.sessionFile) {
         sessionSpan.setAttribute("pi.session.file", args.sessionFile);
       }
@@ -145,6 +157,7 @@ export function createSpanManager(options: SpanManagerOptions) {
     onInput(args: { text: string; source: string; imageCount?: number; path?: string }): void {
       if (!sessionSpan) return;
 
+      input = args.text;
       const sanitized = options.payloadPolicy.sanitize(args.text, { path: args.path });
       sessionSpan.addEvent("input", {
         "pi.event.type": "input",
@@ -153,7 +166,7 @@ export function createSpanManager(options: SpanManagerOptions) {
         ...options.payloadPolicy.toAttributes("pi.input", sanitized),
       });
 
-      const namePreview = previewText(args.text, 50);
+      const namePreview = !options.strict && options.redactText ? previewText(options.redactText(args.text), 50) : "";
       if (namePreview) {
         sessionSpan.updateName(`pi.session ${namePreview}`);
       }
@@ -161,12 +174,14 @@ export function createSpanManager(options: SpanManagerOptions) {
 
     onAgentStart(): void {
       if (!sessionSpan) return;
-      const parentCtx = trace.setSpan(context.active(), sessionSpan);
-      agentSpan = options.tracer.startSpan("pi.agent", { startTime: now() }, parentCtx);
+      agentSpan = startSpan("pi.agent", now(), childContext(sessionSpan));
+      if (input !== undefined) payloadAttribute(agentSpan, options.payloadPolicy, "input", input);
     },
 
-    onAgentEnd(args: { stopReason?: string }): void {
+    onAgentEnd(args: { stopReason?: string; message?: unknown }): void {
       if (agentSpan) {
+        const output = assistantText(args.message);
+        if (output !== undefined) payloadAttribute(agentSpan, options.payloadPolicy, "output", output);
         agentSpan.addEvent("agent_end", {
           "pi.event.type": "agent_end",
           "pi.message.stop_reason": args.stopReason ?? "",
@@ -183,22 +198,18 @@ export function createSpanManager(options: SpanManagerOptions) {
       const parent = agentSpan ?? sessionSpan;
       if (!parent) return;
 
-      const parentCtx = trace.setSpan(context.active(), parent);
-      const turnSpan = options.tracer.startSpan(
-        "pi.turn",
-        {
-          startTime: args.timestamp ?? now(),
-        },
-        parentCtx,
-      );
+      const turnSpan = startSpan("pi.turn", args.timestamp ?? now(), childContext(parent));
+      if (input !== undefined) payloadAttribute(turnSpan, options.payloadPolicy, "input", input);
       turnSpan.setAttribute("pi.turn.index", args.turnIndex);
       turns.set(args.turnIndex, turnSpan);
+      activeTurnIndex = args.turnIndex;
     },
 
     onTurnEnd(args: TurnEndArgs): void {
       const span = turns.get(args.turnIndex);
       if (!span) return;
 
+      generationAttributes(span, args.message, options.payloadPolicy);
       span.addEvent("turn_end", {
         "pi.event.type": "turn_end",
         "pi.turn.index": args.turnIndex,
@@ -207,22 +218,23 @@ export function createSpanManager(options: SpanManagerOptions) {
       });
       safeEnd(span);
       turns.delete(args.turnIndex);
+      if (activeTurnIndex === args.turnIndex) activeTurnIndex = undefined;
     },
 
     onToolCall(args: ToolCallArgs): void {
       const parent = getToolParent(args.turnIndex);
       if (!parent) return;
 
-      const parentCtx = trace.setSpan(context.active(), parent);
-      const rawCommand = args.toolName === "bash" ? extractBashCommand(args.input) : undefined;
+      const parentCtx = childContext(parent);
+      const rawCommand = args.toolName === "bash" ? stringField(args.input, "command") : undefined;
       // Never place a raw command in telemetry: it can carry credentials.
       const command = rawCommand && options.redactText && !options.strict ? options.redactText(rawCommand) : undefined;
-      const span = options.tracer.startSpan(buildToolSpanName(args.toolName, command), { startTime: now() }, parentCtx);
+      const span = startSpan(buildToolSpanName(args.toolName, command), now(), parentCtx);
 
       span.setAttribute("pi.tool.name", args.toolName);
       span.setAttribute("pi.tool.call_id", args.toolCallId);
       // Span attributes, unlike events, reach backends such as Langfuse as queryable metadata.
-      const path = extractPath(args.input);
+      const path = stringField(args.input, "path");
       if (path) {
         span.setAttribute("pi.tool.path", path);
       }
@@ -233,7 +245,8 @@ export function createSpanManager(options: SpanManagerOptions) {
         span.setAttribute("pi.turn.index", args.turnIndex);
       }
 
-      const sanitized = options.payloadPolicy.sanitize(args.input, { path: extractPath(args.input) });
+      toolPaths.set(args.toolCallId, path);
+      const sanitized = payloadAttribute(span, options.payloadPolicy, "input", args.input, path);
       span.addEvent("tool_call", {
         "pi.event.type": "tool_call",
         "pi.tool.name": args.toolName,
@@ -249,14 +262,16 @@ export function createSpanManager(options: SpanManagerOptions) {
       const target = span ?? sessionSpan;
       if (!target) return;
 
-      const sanitized = options.payloadPolicy.sanitize(args.output, { path: undefined });
+      const path = toolPaths.get(args.toolCallId);
+      // Without a matching call we cannot know whether the result came from a denied path.
+      const sanitized = span ? payloadAttribute(target, options.payloadPolicy, "output", args.output, path) : undefined;
       target.addEvent("tool_result", {
         "pi.event.type": "tool_result",
         "pi.tool.name": args.toolName,
         "pi.tool.call_id": args.toolCallId,
         "pi.tool.is_error": args.isError,
         "pi.turn.index": args.turnIndex ?? -1,
-        ...options.payloadPolicy.toAttributes("pi.tool.output", sanitized),
+        ...(sanitized ? options.payloadPolicy.toAttributes("pi.tool.output", sanitized) : { "pi.tool.output.omitted": true }),
       });
 
       if (span) {
@@ -265,6 +280,7 @@ export function createSpanManager(options: SpanManagerOptions) {
         }
         safeEnd(span);
         tools.delete(args.toolCallId);
+        toolPaths.delete(args.toolCallId);
       }
     },
 

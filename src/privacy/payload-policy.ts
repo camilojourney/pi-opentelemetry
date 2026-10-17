@@ -35,17 +35,11 @@ function truncateUtf8(value: string, maxBytes: number): { text: string; bytes: n
     return { text: value, bytes: fullBytes, truncated: false };
   }
 
-  let end = value.length;
-  while (end > 0) {
-    const slice = value.slice(0, end);
-    const bytes = Buffer.byteLength(slice, "utf8");
-    if (bytes <= maxBytes) {
-      return { text: slice, bytes, truncated: true };
-    }
-    end -= 1;
-  }
-
-  return { text: "", bytes: 0, truncated: true };
+  const encoded = Buffer.from(value, "utf8");
+  let end = maxBytes;
+  // Move back at most three bytes to avoid cutting a UTF-8 code point.
+  while (end > 0 && (encoded[end] & 0xc0) === 0x80) end -= 1;
+  return { text: encoded.toString("utf8", 0, end), bytes: end, truncated: true };
 }
 
 export function createPayloadPolicy(options: PayloadPolicyOptions): PayloadPolicy {

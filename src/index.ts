@@ -2,7 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { getConfig } from "./config.js";
 import { buildTraceUrl, openTraceUrl } from "./diagnostics/open-trace-command.js";
 import { formatOtelStatus } from "./diagnostics/status-command.js";
@@ -11,6 +11,7 @@ import { createMetricsRuntime } from "./metrics/provider.js";
 import { createPayloadPolicy } from "./privacy/payload-policy.js";
 import { createRedactor } from "./privacy/redactor.js";
 import { createSpanManager } from "./trace/span-manager.js";
+import { instanceId, parentContext, runId } from "./trace/identity.js";
 import { createTraceRuntime } from "./trace/provider.js";
 import type { AssistantUsage, TelemetryStatus } from "./types.js";
 
@@ -100,14 +101,32 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
     }
   }
 
+  const attributes: Record<string, string> = { "fleet.instance.id": instanceId() };
   const spanManager = traceRuntime
     ? createSpanManager({
         tracer: traceRuntime.tracer,
         payloadPolicy,
         redactText: redactor.redactText,
         strict: config.privacy.profile === "strict",
+        parentContext: parentContext(process.env.TRACEPARENT),
+        attributes,
       })
     : undefined;
+
+  // [impl->req~pi-telemetry.identity~1]
+  const startSession = (ctx: ExtensionContext): void => {
+    const sessionId = getSessionId(ctx);
+    attributes["fleet.run.id"] = runId();
+    attributes["pi.session.id"] = sessionId;
+    attributes["session.id"] = sessionId;
+    spanManager?.onSessionStart({ sessionId, sessionFile: getSessionFile(ctx) });
+    pi.appendEntry("pi.telemetry", {
+      schema: "pi/telemetry-link/v1", session_id: sessionId,
+      instance_id: attributes["fleet.instance.id"], run_id: attributes["fleet.run.id"],
+      trace_id: spanManager?.getTraceId() ?? null,
+      exporter: config.enabled ? config.traces.exporter : "none", sampled: spanManager?.isSampled() ?? false,
+    });
+  };
 
   const updateModel = (ctx: ExtensionContext): void => {
     const model = ctx.model;
@@ -189,6 +208,7 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    startSession(ctx);
     if (!config.enabled) {
       if (ctx.hasUI) ctx.ui.setStatus(EXTENSION_STATUS_KEY, "otel disabled");
       return;
@@ -196,30 +216,11 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
 
     updateModel(ctx);
     collector.recordSessionStart();
-    spanManager?.onSessionStart({
-      sessionId: getSessionId(ctx),
-      sessionFile: getSessionFile(ctx),
-    });
     updateTraceId();
 
     if (ctx.hasUI) {
       ctx.ui.setStatus(EXTENSION_STATUS_KEY, "otel active");
     }
-  });
-
-  pi.on("session_switch", async (_event, ctx) => {
-    if (!config.enabled) return;
-
-    collector.recordSessionEnd();
-    spanManager?.shutdown();
-
-    updateModel(ctx);
-    collector.recordSessionStart();
-    spanManager?.onSessionStart({
-      sessionId: getSessionId(ctx),
-      sessionFile: getSessionFile(ctx),
-    });
-    updateTraceId();
   });
 
   pi.on("input", async (event, ctx) => {
@@ -305,6 +306,7 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
       turnIndex: event.turnIndex,
       toolResults: event.toolResults.length,
       stopReason,
+      message: event.message,
     });
   });
 
@@ -313,6 +315,7 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
 
     spanManager?.onAgentEnd({
       stopReason: findStopReason(event.messages as unknown[]),
+      message: [...event.messages].reverse().find((message) => message.role === "assistant"),
     });
   });
 
@@ -354,6 +357,9 @@ export default function piOpenTelemetryExtension(pi: ExtensionAPI): void {
     }
 
     collector.recordSessionEnd();
+    if (spanManager?.getTraceId()) pi.appendEntry("pi.telemetry.end", {
+      run_id: attributes["fleet.run.id"], reason: "session_shutdown",
+    });
     spanManager?.shutdown();
     updateTraceId();
     await shutdownRuntimes();

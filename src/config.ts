@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { MetricsExporter, PrivacyProfile, TelemetryConfig, TraceExporter } from "./types.js";
 
+const PACKAGE_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const DEFAULT_SERVICE_NAME = "pi-opentelemetry";
 const DEFAULT_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
 const DEFAULT_METRICS_ENDPOINT = "http://localhost:4318/v1/metrics";
@@ -171,7 +172,7 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): TelemetryConfig
   return {
     enabled: asBool(readEnv(env, "OTEL_ENABLE"), true),
     serviceName: resolveServiceName(env),
-    serviceVersion: readEnv(env, "OTEL_SERVICE_VERSION") ?? "0.1.3",
+    serviceVersion: readEnv(env, "OTEL_SERVICE_VERSION") ?? PACKAGE_VERSION,
     resourceAttributes: parseKeyValuePairs(readEnv(env, "OTEL_RESOURCE_ATTRIBUTES")),
     traceUiBaseUrl: readEnv(env, "OTEL_TRACE_UI_BASE_URL") ?? DEFAULT_TRACE_UI_BASE,
     privacy: {

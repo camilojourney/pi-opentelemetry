@@ -63,9 +63,21 @@ describe("redactor", () => {
     });
 
     expect(redactor.shouldSkipPath(".env")).toBe(true);
+    expect(redactor.shouldSkipPath("/repo/config/.env")).toBe(true);
+    expect(redactor.shouldSkipPath("C:\\repo\\.env")).toBe(true);
     expect(redactor.shouldSkipPath("tls/key.pem")).toBe(true);
     expect(redactor.shouldSkipPath("secrets/prod/token.txt")).toBe(true);
     expect(redactor.shouldSkipPath("src/index.ts")).toBe(false);
+  });
+
+  it("applies free-text rules inside nested payload strings", () => {
+    const redactor = createRedactor({ extraSensitiveKeys: [], pathDenylist: [] });
+    const result = JSON.stringify(redactor.redact({ content: [{ text:
+      "log\nAuthorization: Basic dXNlcjpjYW5hcnk=\n-----BEGIN PRIVATE KEY-----\nshort-secret\n-----END PRIVATE KEY-----\nend",
+    }] }));
+    expect(result).not.toContain("dXNlcjpjYW5hcnk=");
+    expect(result).not.toContain("short-secret");
+    expect(result).toContain("[redacted]");
   });
 
   it("masks secrets inside free text", () => {

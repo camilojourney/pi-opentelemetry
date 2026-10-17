@@ -1,0 +1,4 @@
+# The architecture document owns the native exporter interface.
+spec_roots = ["docs"]
+spec_glob = "otel-architecture.md"
+source_globs = ["src/**", "tests/**"]

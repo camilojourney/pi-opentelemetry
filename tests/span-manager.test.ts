@@ -23,6 +23,11 @@ class FakeSpan {
     return this;
   }
 
+  setAttributes(attributes: Record<string, unknown>) {
+    Object.assign(this.attributes, attributes);
+    return this;
+  }
+
   updateName(name: string) {
     this.name = name;
     return this;

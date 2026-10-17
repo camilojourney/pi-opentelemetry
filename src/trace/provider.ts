@@ -1,6 +1,6 @@
 import { trace } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
+import { telemetryResource } from "../resource.js";
 import { BatchSpanProcessor, BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { TelemetryConfig } from "../types.js";
 
@@ -26,11 +26,7 @@ export function createTraceRuntime(config: TelemetryConfig, onError?: (error: un
   }
 
   const provider = new BasicTracerProvider({
-    resource: resourceFromAttributes({
-      ...config.resourceAttributes,
-      "service.name": config.serviceName,
-      "service.version": config.serviceVersion,
-    }),
+    resource: telemetryResource(config),
     spanProcessors,
   });
 

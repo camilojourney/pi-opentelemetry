@@ -21,7 +21,8 @@ const DEFAULT_VALUE_PATTERNS = [
 
 // Secrets embedded in free text, such as a shell command.
 const INLINE_VALUE_PATTERNS = [
-  /\bbearer\s+[A-Za-z0-9\-_.=:+/]+/gi,
+  /\b(?:bearer|basic)\s+[A-Za-z0-9\-_.=:+/]+/gi,
+  /-----BEGIN ([A-Z ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/g,
   /\bsk-[A-Za-z0-9\-_]{8,}/g,
   /\b[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\b/g,
   /[A-Za-z0-9+/]{40,}={0,2}/g,
@@ -54,11 +55,19 @@ export function createRedactor(options: RedactorOptions): Redactor {
     .filter(Boolean)
     .map((key) => new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 
-  const denyPatterns = options.pathDenylist.map((pattern) => wildcardToRegExp(pattern));
+  const denyPatterns = options.pathDenylist.map((pattern) => ({
+    pattern: wildcardToRegExp(pattern), fullPath: pattern.includes("/"),
+  }));
 
   const matchesSensitiveKey = (key: string) => keyPatterns.some((pattern) => pattern.test(key));
 
   const matchesSensitiveValue = (value: string) => DEFAULT_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+
+  const redactText = (text: string): string => {
+    const inline = INLINE_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, REDACTED), text);
+    return inline.replace(/([A-Za-z_][A-Za-z0-9_]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/g,
+      (match, name: string, separator: string) => matchesSensitiveKey(name) ? `${name}${separator}${REDACTED}` : match);
+  };
 
   const redactRecursive = (value: unknown): unknown => {
     if (Array.isArray(value)) {
@@ -77,8 +86,8 @@ export function createRedactor(options: RedactorOptions): Redactor {
       return output;
     }
 
-    if (typeof value === "string" && matchesSensitiveValue(value.trim())) {
-      return REDACTED;
+    if (typeof value === "string") {
+      return matchesSensitiveValue(value.trim()) ? REDACTED : redactText(value);
     }
 
     return value;
@@ -88,14 +97,10 @@ export function createRedactor(options: RedactorOptions): Redactor {
     redact(value: unknown): unknown {
       return redactRecursive(value);
     },
-    redactText(text: string): string {
-      const assigned = text.replace(/([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/g, (match, name: string) =>
-        matchesSensitiveKey(name) ? `${name}=${REDACTED}` : match,
-      );
-      return INLINE_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, REDACTED), assigned);
-    },
+    redactText,
     shouldSkipPath(path: string): boolean {
-      return denyPatterns.some((pattern) => pattern.test(path));
+      const basename = path.replace(/\\/g, "/").split("/").pop() ?? path;
+      return denyPatterns.some(({ pattern, fullPath }) => pattern.test(fullPath ? path : basename));
     },
   };
 }

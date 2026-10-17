@@ -12,7 +12,7 @@ Goals:
 ## Profiles
 
 ### 1) strict
-- Do not send payload bodies
+- Do not send payload bodies or prompt/command previews in names or attributes
 - Send only metadata such as length/success/duration
 
 ### 2) detailed-with-redaction (**default**)
@@ -39,15 +39,18 @@ Mask these keys (case-insensitive) and closely related variants.
 - `private_key`
 
 ### Value-pattern masking
-Mask values that match the following patterns.
+Apply the same sanitizer recursively to every payload string and to previews.
+Mask values and embedded substrings that match the following patterns.
 
+- Basic and Bearer authorization values
 - JWT (`xxx.yyy.zzz` format)
 - OpenAI/other API key prefixes (e.g. `sk-`)
 - Long base64-like strings
 - PEM/private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
 
 ### Path denylist (skip payload capture)
-Skip payload body capture for these paths/extensions.
+Skip both call and result payload bodies for these paths/extensions. Filename
+patterns match the basename even when a tool supplies an absolute path.
 
 - `.env`, `.env.*`
 - `*.pem`, `*.key`, `*.p12`
@@ -77,6 +80,9 @@ Even in detailed mode, unlimited payload transmission is prohibited.
 - raw secret values
 - unmasked auth headers
 - private key/cert bodies
+
+Pattern masking does not identify every secret or personal detail. Use strict
+mode for repositories whose content must not leave the process.
 
 ## Verification Requirements
 

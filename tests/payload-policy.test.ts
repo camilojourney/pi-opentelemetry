@@ -52,6 +52,17 @@ describe("payload policy", () => {
     expect(sanitized.bytes).toBeLessThanOrEqual(20);
   });
 
+  it.each([[1, '"', true], [2, '"', true], [3, '"é', true], [4, '"é"', false]])(
+    "preserves UTF-8 at a %i byte boundary", (limit, text, truncated) => {
+      const policy = createPayloadPolicy({ profile: "detailed-with-redaction", payloadMaxBytes: limit, redactor });
+      const result = policy.sanitize("é");
+      expect(result.text).toBe(text);
+      expect(result.truncated).toBe(truncated);
+      expect(result.bytes).toBe(Buffer.byteLength(text));
+      expect(result.text).not.toContain("\ufffd");
+    },
+  );
+
   it("omits content for denylisted path", () => {
     const policy = createPayloadPolicy({
       profile: "detailed-with-redaction",

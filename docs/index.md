@@ -1,10 +1,5 @@
 # Documentation Index
 
-## Project tracking
-
-- Plan: [../PLAN.md](../PLAN.md)
-- Progress: [../PROGRESS.md](../PROGRESS.md)
-
 ## Core docs
 
 - Architecture: [otel-architecture.md](./otel-architecture.md)
