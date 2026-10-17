@@ -80,6 +80,11 @@ export function createSpanManager(options: SpanManagerOptions) {
   let input: string | undefined;
   let activeTurnIndex: number | undefined;
 
+  const attachInput = (span: Span) => {
+    if (input === undefined) return;
+    payloadAttribute(span, options.payloadPolicy, "input", input);
+    span.setAttribute("pi.input.basis", "last-observed-input-not-full-request-context");
+  };
   const childContext = (span: Span) => trace.setSpan(ROOT_CONTEXT, span);
   const startSpan = (name: string, startTime: number, parent = options.parentContext ?? ROOT_CONTEXT) =>
     options.tracer.startSpan(name, { startTime, attributes: options.attributes }, parent);
@@ -175,7 +180,7 @@ export function createSpanManager(options: SpanManagerOptions) {
     onAgentStart(): void {
       if (!sessionSpan) return;
       agentSpan = startSpan("pi.agent", now(), childContext(sessionSpan));
-      if (input !== undefined) payloadAttribute(agentSpan, options.payloadPolicy, "input", input);
+      attachInput(agentSpan);
     },
 
     onAgentEnd(args: { stopReason?: string; message?: unknown }): void {
@@ -199,7 +204,7 @@ export function createSpanManager(options: SpanManagerOptions) {
       if (!parent) return;
 
       const turnSpan = startSpan("pi.turn", args.timestamp ?? now(), childContext(parent));
-      if (input !== undefined) payloadAttribute(turnSpan, options.payloadPolicy, "input", input);
+      attachInput(turnSpan);
       turnSpan.setAttribute("pi.turn.index", args.turnIndex);
       turns.set(args.turnIndex, turnSpan);
       activeTurnIndex = args.turnIndex;

@@ -113,6 +113,9 @@ estimate model prices; neither estimate proves subscription charges. These turn
 fields cover assistant calls, not auxiliary cache-warming, compaction or nested-tool
 model usage. Metrics export is not required for these generation fields.
 
+Generation input is the last observed user input, not the complete model request
+or reconstructed context. `pi.input.basis=last-observed-input-not-full-request-context`
+marks this limit; token counts remain the assistant's reported usage.
 Input/output use the same bounded [privacy policy](privacy-redaction.md) as events.
 Strict mode emits no body or prompt preview in any attribute or name. Denied read
 paths also suppress the associated result body. Pattern redaction is not a general

@@ -85,6 +85,7 @@ describe("real extension to OTLP HTTP", () => {
     expect(spans.find((span: any) => attributes(span)["pi.tool.call_id"] === "c-1").parentSpanId).toBe(generation.spanId);
     const attrs = attributes(generation);
     expect(attrs["langfuse.observation.model.name"]).toBe("actual-model");
+    expect(attrs["pi.input.basis"]).toBe("last-observed-input-not-full-request-context");
     expect(JSON.parse(attrs["langfuse.observation.usage_details"] as string)).toEqual({
       input: 10, output: 5, cache_read_input_tokens: 7, cache_creation_input_tokens: 3, total: 25,
     });
